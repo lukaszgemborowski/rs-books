@@ -15,12 +15,20 @@ fn user_confirm(prompt: &str) -> dialoguer::Result<bool> {
         .interact()
 }
 
-fn user_fuzzy<T>(prompt: &str, items: &T) -> dialoguer::Result<usize> {
+fn user_fuzzy<T: ToString>(prompt: &str, items: &[T]) -> dialoguer::Result<usize> {
     FuzzySelect::with_theme(&dialoguer::theme::ColorfulTheme::default())
         .with_prompt(prompt)
         .default(0)
         .items(items)
         .interact()
+}
+
+fn user_fuzzy_opt<T: ToString>(prompt: &str, items: &[T]) -> dialoguer::Result<Option<usize>> {
+    FuzzySelect::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        .with_prompt(prompt)
+        .default(0)
+        .items(items)
+        .interact_opt()
 }
 
 fn add_author(db: &mut model::Database) -> dialoguer::Result<usize> {
@@ -41,25 +49,24 @@ fn ask_isbn() -> dialoguer::Result<Option<String>> {
     }
 }
 
-fn add_book(db: &mut model::Database) -> dialoguer::Result<()> {
+fn add_book(db: &mut model::Database) -> dialoguer::Result<usize> {
     let title = user_input("Title")?;
-
-    let author_selection = user_fuzzy("Author", &db.author_list())?;
+    let author_selection = user_fuzzy_opt("Author", &db.author_list())?;
 
     let author_index = match author_selection {
         Some(index) => index,
-        None        => add_author(db)
+        None => add_author(db)?,
     };
 
-    match ask_isbn()? {
+    let id = match ask_isbn()? {
         Some(isbn)  => db.add_book(title, Some(isbn), author_index),
         None        => db.add_book(title, None, author_index),
     };
 
-    Ok(())
+    return Ok(id);
 }
 
-fn list_books(db: &model::Database) {
+fn list_books(db: &model::Database) -> dialoguer::Result<()> {
     struct BookAuthor<'a> {
         book: &'a model::Book,
         db: &'a model::Database,
@@ -83,8 +90,9 @@ fn list_books(db: &model::Database) {
     let _ = FuzzySelect::with_theme(&dialoguer::theme::ColorfulTheme::default())
         .default(0)
         .items(&book_authors)
-        .interact()
-        .unwrap();
+        .interact_opt()?;
+    
+    Ok(())
 }
 
 pub enum Interaction {
@@ -92,7 +100,7 @@ pub enum Interaction {
     Exit
 }
 
-pub fn interact(db: &mut model::Database) -> Interaction {
+fn interact_impl(db: &mut model::Database) -> dialoguer::Result<Interaction> {
     let commands = vec![
         "Add book",
         "Add author",
@@ -101,23 +109,43 @@ pub fn interact(db: &mut model::Database) -> Interaction {
         "Quit",
     ];
     
-    let selection = FuzzySelect::with_theme(&dialoguer::theme::ColorfulTheme::default())
-        .with_prompt("What do you want to do?")
-        .default(0)
-        .items(&commands)
-        .interact()
-        .unwrap();
+    let selection = user_fuzzy("What do you want to do?", &commands)?;
+
+    if selection == commands.len() - 1 {
+        return Ok(Interaction::Exit);
+    }
 
     if selection == 0 {
-        add_book(db);
+        let _ = add_book(db)?;
     } else if selection == 1 {
-        add_author(db);
+        let _ = add_author(db)?;
     } else if selection == 2 {
-        list_books(db);
-    } else if selection == 3 {
-    } else if selection == 4 {
+        let _ = list_books(db)?;
+    }
+
+    Ok(Interaction::Continue)
+}
+
+fn verify_default_owner(db: &mut model::Database) -> dialoguer::Result<()> {
+    if db.owner_list().len() == 0 {
+        user_input("No owners defined. Please enter default owner name").map(|name| {
+            db.add_default_owner(name);
+        })?
+    }
+
+    Ok(())
+}
+
+pub fn interact(db: &mut model::Database) -> Interaction {
+    if verify_default_owner(db).is_err() {
         return Interaction::Exit;
     }
 
-    return Interaction::Continue;
+    match interact_impl(db) {
+        Ok(value) => value,
+        Err(e) => {
+            println!("Error: {}", e);
+            Interaction::Exit
+        }
+    }
 }

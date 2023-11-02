@@ -18,12 +18,20 @@ pub struct Book {
     pub name: String,
     pub isbn: Option<String>,
     pub author_id: usize,
+    pub owner_id: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Owner {
+    pub name: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Database {
     authors: Vec<Author>,
     books: Vec<Book>,
+    owners: Vec<Owner>,
+    default_owner: usize,
 }
 
 impl Database {
@@ -31,6 +39,8 @@ impl Database {
         Database {
             authors: Vec::new(),
             books: Vec::new(),
+            owners: Vec::new(),
+            default_owner: 0,
         }
     }
 
@@ -49,12 +59,15 @@ impl Database {
         return self.authors.len() - 1;
     }
 
-    pub fn add_book(&mut self, title: String, isbn: Option<String>, author_id: usize) {
+    pub fn add_book(&mut self, title: String, isbn: Option<String>, author_id: usize) -> usize {
         self.books.push(Book {
             name: title,
-            isbn,
-            author_id,
+            isbn: isbn,
+            author_id: author_id,
+            owner_id: self.default_owner,
         });
+
+        return self.books.len() - 1;
     }
 
     pub fn author_list(&self) -> &Vec<Author> {
@@ -63,6 +76,20 @@ impl Database {
 
     pub fn book_list(&self) -> &Vec<Book> {
         return &self.books;
+    }
+
+    pub fn owner_list(&self) -> &Vec<Owner> {
+        return &self.owners;
+    }
+
+    pub fn add_default_owner(&mut self, name: String) -> usize {
+        self.owners.push(Owner {
+            name: name,
+        });
+
+        self.default_owner = self.owners.len() - 1;
+
+        return self.default_owner;
     }
 
     pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
